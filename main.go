@@ -1,5 +1,7 @@
 package main
 
+// ref : https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
+
 import (
 	"fmt"
 	"io"
@@ -17,9 +19,6 @@ type TileInfo struct {
 	Y2 int
 }
 
-// var Bound1 = [2]float64{37.4966612, 126.8259632}
-// var Bound2 = [2]float64{37.2095794, 127.1892489}
-
 var Bound1 [2]float64
 var Bound2 [2]float64
 
@@ -29,17 +28,11 @@ var destroot string = ""
 var stz int = 6
 var endz int = 15
 
-// var stz int = 19
-// var endz int = 19
-
-// var stz int
-// var endz int
-
 // ------------------------------------------------------------------------------
 // initEnvVaiable
 // ------------------------------------------------------------------------------
 func initEnvVaiable() bool {
-	fmt.Printf("initEnvVaiable...")
+	fmt.Printf("initEnvVaiable...\n")
 
 	cfg, err := ini.Load("./conf.ini")
 	if err != nil {
@@ -59,9 +52,6 @@ func initEnvVaiable() bool {
 	stz, _ = cfg.Section("MAPINFO").Key("startlv").Int()
 	endz, _ = cfg.Section("MAPINFO").Key("endlv").Int()
 
-	// fmt.Printf("Bound1 %v", Bound1)
-	// fmt.Printf("Bound2 %v", Bound2)
-
 	return true
 }
 
@@ -75,6 +65,25 @@ func tileToLat(y, z float64) float64 {
 	n := math.Pi - 2*math.Pi*y/math.Pow(2, z)
 	val := (180 / math.Pi * math.Atan(0.5*(math.Exp(n)-math.Exp(-n))))
 	return val
+}
+
+func tileToLatLon(z, x, y int) (float64, float64) {
+	n := math.Pi - 2.0*math.Pi*float64(y)/math.Exp2(float64(z))
+	lat := 180.0 / math.Pi * math.Atan(0.5*(math.Exp(n)-math.Exp(-n)))
+	lon := float64(x)/math.Exp2(float64(z))*360.0 - 180.0
+
+	return lat, lon
+
+}
+
+func degToTiles(lat, lon float64, z int) (int, int) {
+	n := math.Exp2(float64(z))
+	x := int(math.Floor((lon + 180.0) / 360.0 * n))
+	if float64(x) >= n {
+		x = int(n - 1)
+	}
+	y := int(math.Floor((1.0 - math.Log(math.Tan(lat*math.Pi/180.0)+1.0/math.Cos(lat*math.Pi/180.0))/math.Pi) / 2.0 * n))
+	return x, y
 }
 
 func initTileInfo() []TileInfo {
@@ -100,7 +109,7 @@ func initTileInfo() []TileInfo {
 
 func copyfile(src, dstpath, filenm string) error {
 	if _, err := os.Stat(dstpath); os.IsNotExist(err) {
-		fmt.Printf("make dir..%v, %v, %v\n", src, dstpath, filenm)
+		//fmt.Printf("make dir..%v, %v, %v\n", src, dstpath, filenm)
 		err = os.MkdirAll(dstpath, 0775)
 		if err != nil {
 			return err
@@ -148,49 +157,167 @@ func checkRange(lat, lon float64) bool {
 	return false
 }
 
+// func main() {
+/*
+	전체 타일을 읽고, 타일마다 gps 좌표를 확인해서
+	해당 gps bounds에 포함이 되는지 확인 (시간 오래걸림 모든 타일을 읽기 때문)
+*/
+// 	initok := initEnvVaiable()
+// 	if !initok {
+// 		fmt.Printf("Map info initEnvVaiable fail..")
+// 		return
+// 	}
+
+// 	t := initTileInfo()
+
+// 	for z := stz; z <= endz; z++ {
+// 		x := t[z].X1
+// 		x2 := t[z].X2
+
+// 		for x <= x2 {
+// 			y := t[z].Y1
+// 			y2 := t[z].Y2
+
+// 			for y <= y2 {
+// 				filepath := fmt.Sprintf("%d/%d/%d.png", z, x, y)
+// 				path := fmt.Sprintf("%s/%s", rootpath, filepath)
+// 				fmt.Printf("path : [%s]\n", path)
+
+// 				// lon1 := tiletoLong(float64(x), float64(z))
+// 				// lat1 := tileToLat(float64(y), float64(z))
+// 				lat, lon := tileToLatLon(z, x, y)
+// 				lat1, lon1 := tileToLatLon(z, x+1, y+1)
+
+// 				fmt.Printf("lat, lon :[%v, %v], [%v, %v]\n", lat, lon, lat1, lon1)
+
+// 				if _, err := os.Stat(path); os.IsNotExist(err) {
+// 					fmt.Printf("Unexist z/x/y file ..%d, %d, %d\n", z, x, y)
+// 				} else {
+// 					destpath := fmt.Sprintf("%s/%d/%d", destroot, z, x)
+// 					filenm := fmt.Sprintf("%d.png", y)
+
+// 					// check range
+// 					chk1 := checkRange(lat, lon)
+// 					chk2 := checkRange(lat1, lon1)
+
+// 					// if checkRange(lat, lon) {
+// 					// 	fmt.Printf("copy..file %d, %d, %d \n", z, x, y)
+// 					// 	copyfile(path, destpath, filenm)
+// 					// }
+// 					if chk1 || chk2 {
+// 						fmt.Printf("copy..file %d, %d, %d \n", z, x, y)
+// 						copyfile(path, destpath, filenm)
+// 					}
+// 				}
+
+// 				y++
+// 			}
+
+// 			x++
+// 		}
+// 	}
+// }
+
+type TileBound struct {
+	xSt  int
+	xEnd int
+
+	ySt  int
+	yEnd int
+}
+
+func min(n1, n2 int) int {
+
+	if n1 > n2 {
+		return n2
+	}
+	return n1
+}
+
+func max(n1, n2 int) int {
+	if n1 > n2 {
+		return n1
+	}
+	return n2
+}
+
 func main() {
+	/*
+		// gps좌표 -> 타일번호 추출
+		// z별로 X축에 해당하는 타일범위 Y축에 해당하는 타일 범위를 구함
+		// 추출한 타일번호만 copy하기 때문에 속도 빠름
+	*/
+
+	var mpTileBound map[int]TileBound = make(map[int]TileBound)
+
 	initok := initEnvVaiable()
 	if !initok {
-		fmt.Printf("Map info initEnvVaiable fail..")
+		fmt.Printf("Map info initEnvVaiable fail..\n")
 		return
 	}
 
-	t := initTileInfo()
+	//t := initTileInfo()
 
 	for z := stz; z <= endz; z++ {
-		x := t[z].X1
-		x2 := t[z].X2
+		lat1 := Bound1[0]
+		lon1 := Bound1[1]
 
-		for x <= x2 {
-			y := t[z].Y1
-			y2 := t[z].Y2
+		lat2 := Bound2[0]
+		lon2 := Bound2[1]
 
-			for y <= y2 {
+		// X축
+		Xx1, Xy1 := degToTiles(lat1, lon1, z)
+		Xx2, Xy2 := degToTiles(lat1, lon2, z)
+
+		fmt.Printf(" [%d, %d] - [%d, %d] \n", Xx1, Xy1, Xx2, Xy2)
+		Xx1lat, Xx1lon := tileToLatLon(z, Xx1, Xy1)
+		Xx2lat, Xx2lon := tileToLatLon(z, Xx2, Xy2)
+		fmt.Printf(" [X] x1 latlon[%v, %v] - x2 latlon[%v, %v] \n", Xx1lat, Xx1lon, Xx2lat, Xx2lon)
+
+		fmt.Println("")
+
+		// Y축
+		Yx1, Yy1 := degToTiles(lat1, lon1, z)
+		Yx2, Yy2 := degToTiles(lat2, lon1, z)
+
+		fmt.Printf(" [%d, %d] - [%d, %d] \n", Yx1, Yy1, Yx2, Yy2)
+
+		Yx1lat, Yx1lon := tileToLatLon(z, Yx1, Yy1)
+		Yx2lat, Yx2lon := tileToLatLon(z, Yx2, Yy2)
+		fmt.Printf(" [Y] x1 latlon[%v, %v] - x2 latlon[%v, %v] \n", Yx1lat, Yx1lon, Yx2lat, Yx2lon)
+
+		tileinfo := TileBound{}
+		tileinfo.xSt = min(Xx1, Xx2)
+		tileinfo.xEnd = max(Xx1, Xx2)
+		tileinfo.ySt = min(Yy1, Yy2)
+		tileinfo.yEnd = max(Yy1, Yy2)
+		mpTileBound[z] = tileinfo
+
+		fmt.Printf(">> z:%d X : (%d - %d), Y : [%d - %d] \n", z, tileinfo.xSt, tileinfo.xEnd, tileinfo.ySt, tileinfo.yEnd)
+
+	}
+
+	// file copy
+	for z := stz; z <= endz; z++ {
+		t := mpTileBound[z]
+
+		for x := t.xSt; x <= t.xEnd; x++ {
+
+			for y := t.ySt; y <= t.yEnd; y++ {
 				filepath := fmt.Sprintf("%d/%d/%d.png", z, x, y)
 				path := fmt.Sprintf("%s/%s", rootpath, filepath)
-				fmt.Printf("path : [%s]\n", path)
-
-				lon := tiletoLong(float64(x), float64(z))
-				lat := tileToLat(float64(y), float64(z))
-				fmt.Printf("lat, lon :%v, %v\n", lat, lon)
 
 				if _, err := os.Stat(path); os.IsNotExist(err) {
 					fmt.Printf("Unexist z/x/y file ..%d, %d, %d\n", z, x, y)
 				} else {
+
 					destpath := fmt.Sprintf("%s/%d/%d", destroot, z, x)
 					filenm := fmt.Sprintf("%d.png", y)
+					copyfile(path, destpath, filenm)
 
-					// check range
-					if checkRange(lat, lon) {
-						fmt.Printf("copy..file %d, %d, %d \n", z, x, y)
-						copyfile(path, destpath, filenm)
-					}
+					fmt.Printf("\t >> copy file %d, %d, %d \n", z, x, y)
 				}
-
-				y++
 			}
-
-			x++
 		}
 	}
 }
